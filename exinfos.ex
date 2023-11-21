@@ -1,0 +1,9 @@
+[INFOS]
+gaf=0
+title=webmillion
+image=description.gif
+description=description.rtf
+source=1
+typesite=0
+[OBJECT]
+webmillion.WWP=4096

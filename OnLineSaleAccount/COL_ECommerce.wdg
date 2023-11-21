@@ -1,0 +1,1310 @@
+#To edit and compare internal_properties, use WINDEV integrated tools.
+#Internal properties refer to the properties of controls in windows, reports, etc.
+info :
+ name : COL_ECommerce
+ major_version : 28
+ minor_version : 0
+ type : 7
+ description : ""
+ subtype : 0
+procedure_set :
+ identifier : 0x1e0c4c3d00049bd8
+ internal_properties : CAAAAAgAAABGLu41kG7fjQV3iS4F72qmnKaNh5694reolNKIW0iw
+ code_elements :
+  internal_properties : CAAAAAgAAADKTPMg+PDjmvn8kE26ocIZgPi/Z5gjEwvvmVMtgJMN/+f8mmg3bHA5wt+9avzkq0vdoZ5TgPqGLWPZtO1ZHOQYEuY2+jBRZeGqK7l6OcEVehB0+Orpww/KysLjZLFYqWj4GHXW5rAWq+WO9GRhCIpOtrCHAGX+5En725eEwhVKlmuPeef27+3ENFEHQSloCQIfPpKVcbsv8gZBpSH+pdFy1apOMpAt+Hq4FXlyCU0/ChVyPgouOn/HHgkX1HjI3H+M7kEnbgn8hvu1/ApWaSLSQpOHb7E2E1mzp+SkSPitKR+4Ptk8k9tJwLDUBM7MAkXBoVdioumMdRYZfVa1SHACs9G0SkCc7Rbe7j+I+ok5kJ6V7a9TVK2EtkaIIci93DKCaYJb6w==
+  type_code : 31
+  p_codes :
+   -
+     internal_properties : CAAAAAgAAAB/+xo7XMWkLZCHSi5HpH4vh1ed4zcw7GfmyeD/Vmzy3WPFPK2fOar9YIiCfGBA+eoCNyH7OtzbunU4hmI2DaJzjrj86+AB9vPhGfBBWSEVNoCUSrffqw7vEgGCbUDa6kykkosAmsDspT1KY2MvEEdtqCKwxErx2b+g9Y6zAfi44b5USLxAPIem4yvUQFoJIwbpW4lygmPSXiz+OkVzobo7y/8LxoOMYsteVfhnY67fnj9OPzVbynX2
+     code : |1-
+      // The set of procedures named COL_EBusiness is used to manage an e-commerce site
+      // It uses the following analysis files:
+      // - Customer: file of customer accounts
+      // - Address: file of active addresses for the customers
+      // - Orders: file of orders placed on the site
+      // - OrdLine: file of order details
+      // - ArchiveAddress: file of addresses used in the orders, in addition only
+      // - Product: file of products
+      // - ProductFamily: file of product families
+      // - ProductPhoto: file of product photos
+      // - TaxRate: file of tax rates
+      // The project must necessarily use the management of AWP contexts on the disk (ConfigureAWPContext(ctxDisk) in the initialization code of the project)
+      
+      // Constants of the internal component
+      CONSTANT
+      	// Types of payments (used in the Orders.PaymentType item)
+      	PAYM_CC = 1				// Payment by credit card
+      	PAYM_PAYPAL = 2			// Payment by PayPal
+      	PAYM_WIRE = 3		// Payment by bank wire
+      	PAYM_CHECK = 4			// Payment by check
+      	
+      	// States of an order (used in the Orders.OrderStatus item)
+      	ORD_WAITINGFORPAYMENT = 1		// Order waiting for payment
+      	ORD_PREPARATION = 2				// Order paid, currently prepared
+      	ORD_DELIVERY = 3				// Order currently delivered
+      	ORD_DELIVERED = 4					// Order delivered
+      	
+      	// Currency symbol
+      //	SYMBOL_CURRENCY = "€"		// To be transformed into variable if the site must use several currency symbols
+      	
+      	// Default pages
+      	PAGE_VIEWBASKET_DEFAULT = "basket.awp"
+      	PAGE_BACK_TO_STORE_DEFAULT = "home.awp"
+      	PAGE_VIEW_PRODUCT_DEFAULT = "product.awp"
+      	
+      	// Roles of photos of products
+      	ROLE_PHOTO_NORMAL = 0		// Standard photo
+      	ROLE_PHOTO_BASKET_SMALL = 1	// Thumbnail for the small baskets (32x32 in most cases)
+      	ROLE_PHOTO_BASKET_LARGE = 2	// Thumbnail for the large baskets (64x64 in most cases)
+      END
+      
+      // Structures of customer basket
+      STBasketLine is Structure
+      	// Content of the basket line
+      	sProductRef is string				// Reference of product
+      	nNbArticles is int				// Number of articles for this reference
+      	// "Cache" variables to limit the number of calculations and accesses to the files on the server
+      	sArticleCap is string				// Caption of the article
+      	cyUnitPriceBT is currency		// Unit price BT
+      	cyUnitTax is currency			// Amount of the tax applied to an article
+      	cyUnitPriceIOT is currency		// Unit price IOT
+      END
+      
+      STOrder is Structure
+      	// Basket Content
+      	arrBasket is array of STBasketLine
+      	// "Cache" variables to limit the number of calculations on the server
+      	aaTC_Product is ASSOCIATIVE ARRAY of int		// Rank of a product in the basket (indexed on its reference)
+      	nNbArticles is int							// Number of articles
+      	cyTotalPriceBT is currency						// Total value of basket (BT)
+      	cyTotalTax is currency						// Total value of taxes
+      	// Delivery variables
+      	cyDeliveryCostBT is currency				// Shipping costs (BT)
+      	cyDeliveryCostIOT is currency				// Shipping costs (IOT)
+      	// Total value of basket IOT, including the shipping costs (grand total to pay)
+      	cyTotalPriceIOT is currency						// Total value of basket (IOT)
+      	
+      	// Variables used by the conversion channel
+      	nCustomerId is int				// Customer currently placing an order
+      	nIDDeliveryAddress is int	// Selected delivery address
+      	nIDInvoicingAddress is int	// Selected invoicing address
+      	
+      	nIDOrder is int			// Order currently created
+      	
+      	nPostageType is int // Type of port
+      END
+      
+      // Global variables of the internal component (these variables are placed in the AWP context in the InitializeECommerce procedure)
+      gbInitCompleted is boolean = False				// True if the initialization of the internal component was already performed
+      gStBasket is STOrder							// Variable storing the basket
+      gsSiteName is string							// Name of the site for the display in the order pages
+      gbConnectionPayBoxSSL is boolean = True			// True if the connection to PayBox (pament by CC) must be done in SSL
+      gsCurrentError is string						// Text containing the last fatal error
+      gsFileCGV is string							// Name of the file containing the General Sales Conditions (simple or HTML text)
+      gsOrderConfirmationEmail is string = "orderdepartment"	// Sender address of the emails for order confirmation
+      
+      // Customizable entry points
+      gPCalcShippingCosts is Procedure = DefaultShippingCost			// Procedure used to calculate the shipping costs for a basket
+      gPInitPaymentModule is Procedure = InitDefaultPaymentModule 	// Procedure for initializing the payment modules (PayBox, PayPal, etc.)
+      gPGenerateOrderNum is Procedure = OrderCreate			// Procedure returning for each call the next order number to use
+      gPOrderConfirmationEmail is Procedure = OrderDefaultConfirmationEmail // Procedure that sends the emails for order confirmation
+      
+      // Names of pages
+      gsNamePageViewBasket is string = PAGE_VIEWBASKET_DEFAULT		// Page for viewing the basket (entry of conversion channel)
+      gsNamePageBackToStore is string = PAGE_BACK_TO_STORE_DEFAULT	// Page for going back to the store from the conversion channel
+      gsNamePageViewProduct is string = PAGE_VIEW_PRODUCT_DEFAULT	// Page for viewing a product
+      
+      // Texts of the payment page
+      gsTextCCPayment is string = <§@1e0c492300017dcb0000§>
+      gsTextPayPalPayment is string = <§@1e0c492300017dcb0001§>
+      gsTextWirePayment is string = <§@1e0c492300017dcb0002§>
+      gsTextCheckPayment is string = <§@1e0c492300017dcb0003§>
+      
+      // Variables for managing the payment
+      gsURLBackToStore is string
+      gsPaymentOKURL is string
+      gsURLPaymentAbandon is string
+      gsURLPaymentFailure is string
+      gsPaymentObjectName is string
+      gsPaymentObjectRef is string
+      
+      gbPaymentSimulationMode is boolean
+      gsPayPalIdentifier, gsPayPalPassword, gsPayPalSignature are strings
+      gsPayBoxContract is string 
+      gsPayBoxCompanyCode, gsPayBoxRank are int
+      
+      
+      
+      // 
+      gsDecimalSeparator is string = NumToString(1.1,"1,2f")[[2]]
+      gnNbDecimals is int = 3 // 3 decimals by default
+     type : 720896
+  procedures :
+   -
+     name : InitializeEBusiness
+     internal_properties : CAAAAAgAAABgq4rTMur7CgcNS1FvVIb9aNYlYmNazmEjOHX2jg6gUA8LdvPkBuQ/rozKF2Syi6mkCpC1u9SfJxe5KQSL63drmXv6LCGYtKBbKbG1e2KBJ0zgz3qLQFBv4Png76HHvJS1okyA6d37WxTY4U+/ViNdB418y6bJQwTYBoVSR5ey2eQs6250144hxUB+FE3nE2lUaHbMogDGqK5Mdxx6
+     procedure_id : 2165193327170207594
+     type_code : 15
+     code : |1+
+      // Summary: Initializes the internal component
+      // Syntax:
+      //[ <Result> = ] InitializeECommerce ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	boolean: // Returns True during the first initialization
+      // The caller knows that the variables of the set of procedures have their default values and that they can be replaced
+      //
+      // Returns False during the other initializations (once the AWP context is re-read)
+      // The caller knows that the variables have been re-read in the AWP session
+      //
+      Procedure InitializeEBusiness()
+      
+      // Declare the global variables of the context
+      DeclareAWPContext(gbInitCompleted)
+      DeclareAWPContext(gStBasket)
+      DeclareAWPContext(gsSiteName)
+      DeclareAWPContext(gsNamePageViewBasket)
+      DeclareAWPContext(gsNamePageBackToStore)
+      DeclareAWPContext(gsTextCCPayment)
+      DeclareAWPContext(gsTextPayPalPayment)
+      DeclareAWPContext(gsTextWirePayment)
+      DeclareAWPContext(gsTextCheckPayment)
+      DeclareAWPContext(gbConnectionPayBoxSSL)
+      DeclareAWPContext(gsCurrentError)
+      DeclareAWPContext(gsFileCGV)
+      DeclareAWPContext(gsPaymentOKURL)
+      DeclareAWPContext(gsURLBackToStore)
+      DeclareAWPContext(gsURLPaymentAbandon)
+      DeclareAWPContext(gsURLPaymentFailure)
+      DeclareAWPContext(gsPaymentObjectName)
+      DeclareAWPContext(gsPaymentObjectRef)
+      
+      DeclareAWPContext(gbPaymentSimulationMode)
+      DeclareAWPContext(gsPayPalIdentifier)
+      DeclareAWPContext(gsPayPalPassword)
+      DeclareAWPContext(gsPayPalSignature)
+      DeclareAWPContext(gsPayBoxContract)
+      DeclareAWPContext(gsPayBoxCompanyCode)
+      DeclareAWPContext(gsPayBoxRank)
+      
+      
+      DeclareAWPContext(gsOrderConfirmationEmail)
+      DeclareAWPContext(gsNamePageViewProduct)
+      
+      // Initialize the payment modules
+      // We do it systematically because the procedure must initialize the variables internal to the secure payment component that are not stored (for security reasons)
+      COL_ECommerce.gPInitPaymentModule()
+      
+      // If it is the first initialization (the variables have not been read in the context)
+      IF gbInitCompleted = False THEN
+      	// The initialization is completed
+      	gbInitCompleted = True
+      	
+      	// By default, the name of the site is the deployment name
+      	gsSiteName = ProjectInfo(piNameDeployedSite)
+      	gsFileCGV = "cgv.html"
+      
+      	// Returns True during the first initialization
+      	// The caller knows that the variables of the set of procedures have their default values and that they can be replaced
+      	RESULT True
+      END
+      
+      // Returns False during the other initializations (once the AWP context is re-read)
+      // The caller knows that the variables have been re-read in the AWP session
+      RESULT False
+      
+     type : 458752
+   -
+     name : BasketNbArticles
+     internal_properties : CAAAAAgAAAA4d3ihMn5BMxkHZHBBiEMBjedt6NFijjUvJdRyzjyUZwVe/QDPHHSXyj1OwIbVtDumhJXWODBA6weHlII0kfAHsw0LOwSu7ZzMMtCOdqEw0yS2wmGoaKX30Dsqxah+Jadny8DuBrwd0jKU6JYKy8mJbJFezq+XTGC5FL+CP1SmUGfC7uO3epdjPicgqLXoQOhuYg1P/+mQe/x8lFti94Vrb0t+PH1HGvcrMH4Nf138byzzsLSlgsB5UKsiHE0TJ8So2/D+8n4WUnhcd0Azkarl31mzfcy7bhYRdhIy1BKzAoyl8Pqv/5yydG3xZCxHl5CS8kBQGGfA+8Te6aENpSBVJX6s5vMtDNZyYL/OCdR8ylLrJl1IVC20HuV68JAMedO8Vnue1bAf6NoUzdN9nsNoG29V4bWOCUBMWQvwPHhr8ao8EX+XXvBMnv9WL3HOwnVuna1LMAM5bDp2I+fMyQsACtJ1iL5MMFCwAXPMlWtVuRw9TkO8pot/jgGMsoRsWYxZfZTOKGHF+c6DUWJ9ky/zpnF4WKw+5YbxyLFvvtY6tT+cvo9p/NZTrVExq0y3K3dtcn5b4nQn6z/ut1F09WcbKalsC8Mn+O7t0DwfOG2LTlkoQB/sW7R1KmkK2d1dNaHuwpatGH2j9AY2nkr5q4ioz+0BCiyUHm7ZVAsOfjhZHrTYXt/07DY/J7iaNqkK
+     procedure_id : 2165284363300121939
+     type_code : 15
+     code : |1-
+      // Summary: Returns a caption corresponding to the number of articles in the basket
+      // Syntax:
+      //[ <Result> = ] BasketNbArticles ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	string: //  	 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketNbArticles()
+      
+      SWITCH gStBasket.nNbArticles
+      	CASE 0
+      		RESULT "Empty basket"
+      	CASE 1
+      		RESULT "1 item"
+      END
+      
+      RESULT StringBuild("%1 items",gStBasket.nNbArticles)
+     type : 458752
+   -
+     name : BasketValueIOT
+     internal_properties : CAAAAAgAAABk2piQTHc9frUYXC8sGrFNdcD6A/V8pr7a2vCJUrrLdXKYnWF8rhmA8NMIXOr9X7Ar7TD9Wujp9jHrkBgEgeqfpH9wUx6NSVSV/qWEdwJENj3QB7p0JHM=
+     procedure_id : 2165286167186479001
+     type_code : 15
+     code : |1-
+      // Summary: Returns the total value of the basket (IOT)
+      // Syntax:
+      //[ <Result> = ] BasketValueIOT ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	string: //  	 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketValueIOT()
+      
+      RESULT CurrencyToString(gStBasket.cyTotalPriceIOT)
+     type : 458752
+   -
+     name : BasketLineCaption
+     procedure_id : 2165290015477481706
+     type_code : 15
+     code : |1-
+      // Summary: Returns a caption corresponding to the basket line
+      // Syntax:
+      //[ <Result> = ] BasketLineCaption (<nLine> is int)
+      //
+      // Parameters:
+      //	nRow (int): <specify the role of nRow>
+      // Return value:
+      // 	variant: // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketLineCaption( nLine is int )
+      
+      dbgAssert(nLine<=ArrayCount(gStBasket.arrBasket))
+      
+      stLine is STBasketLine = gStBasket.arrBasket[nLine]
+      
+      RESULT StringBuild("%1 %2 (%3)",stLine.nNbArticles,stLine.sArticleCap,CurrencyToString(stLine.cyUnitPriceIOT*stLine.nNbArticles))
+     type : 458752
+   -
+     name : BasketAdd
+     internal_properties : CAAAAAgAAABk2piQTHc9frUYXC8sGrFNdcD6A/V8pr7a2vCJUrrLdXKYnWF8rhmA8NMIXOr9X7Ar7TD9Wujp9jHrkBgEgeqfpH9wUx6NSVSV/qWEdwJENj3QB7p0JHM=
+     procedure_id : 2166670031416594321
+     type_code : 15
+     code : |1+
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      //[ <Result> = ] BasketAdd (<sProductRef> is string, <nNbAdditions> is int)
+      //
+      // Parameters:
+      //	sProductRef (string): <specify the role of ATT_STC_IDProduct>
+      //	nNbAdditions (integer): <specify the role of ATT_NbAdditions>
+      // Return value:
+      // 	boolean: // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketAdd( sProductRef is string, nNbAdditions is int )
+      
+      RESULT BasketModifyNumber(sProductRef,nNbAdditions)
+     type : 458752
+   -
+     name : BasketDeleteProduct
+     internal_properties : CAAAAAgAAABk2piQTHc9frUYXC8sGrFNdcD6A/V8pr7a2vCJUrrLdXKYnWF8rhmA8NMIXOr9X7Ar7TD9Wujp9jHrkBgEgeqfpH9wUx6NSVSV/qWEdwJENj3QB7p0JHM=
+     procedure_id : 2166739231938571403
+     type_code : 15
+     code : |1+
+      // Summary: Deletes a product from the basket (regardless of the quantity found)
+      // Syntax:
+      //BasketDeleteProduct (<sProductRef> is string)
+      //
+      // Parameters:
+      //	sProductRef (string): Reference to delete
+      
+      Procedure BasketDeleteProduct( sProductRef is string )
+      
+      dbgAssert(gStBasket.aaTC_Product[sProductRef]>0,"Deleting a non-existing item")
+      nRankInBasket is int = gStBasket.aaTC_Product[sProductRef]
+      
+      // Refreshes the global counters
+      gStBasket.nNbArticles -= gStBasket.arrBasket[nRankInBasket].nNbArticles
+      gStBasket.cyTotalPriceIOT -= gStBasket.arrBasket[nRankInBasket].nNbArticles*gStBasket.arrBasket[nRankInBasket].cyUnitPriceIOT
+      gStBasket.cyTotalPriceBT -= gStBasket.arrBasket[nRankInBasket].nNbArticles*gStBasket.arrBasket[nRankInBasket].cyUnitPriceBT
+      gStBasket.cyTotalTax -= gStBasket.arrBasket[nRankInBasket].nNbArticles*gStBasket.arrBasket[nRankInBasket].cyUnitTax
+      
+      // Deletes from the arrays
+      ArrayDeleteLine(gStBasket.arrBasket,nRankInBasket)
+      ArrayDeleteLine(gStBasket.aaTC_Product,sProductRef)
+      
+      
+      
+      // Refreshes the indexes in the associative array
+      FOR EACH nRank of gStBasket.aaTC_Product
+      	IF nRank>nRankInBasket THEN
+      		nRank--
+      	END
+      END
+     type : 458752
+   -
+     name : BasketDelete
+     internal_properties : CAAAAAgAAADDD0FyZmAWWFQmIjm5Snexp1aOE3WoqMXj598HPQ3l3EY6NfbF+IcdclhnW7VdJpRdRAAMPkExxmA6Fp5CMMLJAQhM9nGokEaEmW9O3dBeR7sLuFDv7HsfDRvR0HkriaQEZeVYQcN0lxNY4k6BZIpz7uAB+dnIztQvGHay+rYLXMyQJboYqUrQVD4+iDhv
+     procedure_id : 2166764353206495651
+     type_code : 15
+     code : |1+
+      // Summary: <specify the action of the procedure>
+      // Syntaxe :
+      //[ <Résultat> = ] BasketDelete (<sProductRef> est chaîne, <nNbDel> est entier)
+      //
+      // Paramètres :
+      //	sProductRef (chaîne ANSI) : <specify the role of sProductRef>
+      //	nNbDel (entier) : <specify the role of nNbAdditions>
+      // Example:
+      // Indicate an example.
+      //
+      // Return value:
+      // 	boolean: // 	None
+      Procedure BasketDelete( sProductRef is string, nNbDel is int )
+      
+      RESULT BasketModifyNumber(sProductRef,-nNbDel)
+     type : 458752
+   -
+     name : BasketModifyNumber
+     internal_properties : CAAAAAgAAABk2piQTHc9frUYXC8sGrFNdcD6A/V8pr7a2vCJUrrLdXKYnWF8rhmA8NMIXOr9X7Ar7TD9Wujp9jHrkBgEgeqfpH9wUx6NSVSV/qWEdwJENj3QB7p0JHM=
+     procedure_id : 2166764460580769259
+     type_code : 15
+     code : |1-
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      //[ <Result> = ] BasketModifyNumber (<sProductRef> is string, <nNbModif> is int [, <bDeleteIfNull> is boolean])
+      //
+      // Parameters:
+      //	sProductRef (string): <specify the role of sProductRef>
+      //	nNbModif (integer): <specify the role of nNbAdditions>
+      //	bDeleteIfNull (boolean - default value=1): <specify the role of bDeleteIfNull>
+      // Return value:
+      // 	boolean: // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketModifyNumber(sProductRef is string, nNbModif is int , bDeleteIfNull is boolean = True )
+      
+      // Finds the product in the basket
+      nRankInBasket is int = gStBasket.aaTC_Product[sProductRef]
+      IF nRankInBasket=0 THEN
+      	// Error if we are in deletion
+      	IF nNbModif<0 THEN
+      		dbgAssert(False,"Deleting a product that is not found in the basket")
+      		RESULT False
+      	END
+      	
+      	// This product does not exist in the basket, add it
+      
+      	// Finds the product and its tax rate in the database
+      	IF HReadSeekFirst(Product,Reference,sProductRef)=False THEN
+      		dbgAssert(False,"Attempt to add an unknown product")
+      		RESULT False
+      	END
+      	
+      	IF HReadSeekFirst(TaxRate,IDTaxRate,Product.IDTaxRate) = False THEN
+      		dbgAssert(False,"The product is not associated with a tax rate")
+      		RESULT False
+      	END
+      
+      	// Create the basket line
+      	stNewLine is STBasketLine 
+      	stNewLine.cyUnitPriceBT = Product.UnitPriceBT
+      	stNewLine.cyUnitTax = (Product.UnitPriceBT * TaxRate.Rate) / 100
+      	stNewLine.cyUnitPriceIOT = stNewLine.cyUnitPriceBT + stNewLine.cyUnitTax
+      	stNewLine.nNbArticles = nNbModif
+      	stNewLine.sArticleCap = Product.ProductCaption
+      	stNewLine.sProductRef = sProductRef
+      	nRankInBasket = ArrayAddLine(gStBasket.arrBasket,stNewLine)
+      	dbgAssert(nRankInBasket<>-1,"The addition into the table failed")
+      	IF nRankInBasket>0 THEN
+      		gStBasket.aaTC_Product[sProductRef] = nRankInBasket
+      	ELSE
+      		RESULT False
+      	END
+      ELSE
+      	// The product already exists in the basket, modify the number
+      	gStBasket.arrBasket[nRankInBasket].nNbArticles += nNbModif
+      END
+      
+      // If the number of elements is set to 0, remove the article from the basket
+      IF gStBasket.arrBasket[nRankInBasket].nNbArticles=0 _AND_ bDeleteIfNull THEN
+      	BasketDeleteProduct(sProductRef)
+      	RESULT True
+      END
+      
+      // Refreshes the global counters
+      gStBasket.nNbArticles += nNbModif
+      gStBasket.cyTotalPriceBT += nNbModif*gStBasket.arrBasket[nRankInBasket].cyUnitPriceBT
+      gStBasket.cyTotalTax += nNbModif*gStBasket.arrBasket[nRankInBasket].cyUnitTax
+      gStBasket.cyTotalPriceIOT += nNbModif*gStBasket.arrBasket[nRankInBasket].cyUnitPriceIOT
+      
+      RESULT True
+     type : 458752
+   -
+     name : BasketQuantity
+     internal_properties : CAAAAAgAAABk2piQTHc9frUYXC8sGrFNdcD6A/V8pr7a2vCJUrrLdXKYnWF8rhmA8NMIXOr9X7Ar7TD9Wujp9jHrkBgEgeqfpH9wUx6NSVSV/qWEdwJENj3QB7p0JHM=
+     procedure_id : 2167150771419152443
+     type_code : 15
+     code : |1-
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      //[ <Result> = ] BasketQuantity (<nRank> is int)
+      //
+      // Parameters:
+      //	nRank (integer): <specify the role of nRank>
+      // Return value:
+      // 	integer: // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketQuantity( nRank is int )
+      
+      RESULT COL_ECommerce.gStBasket.arrBasket[nRank].nNbArticles
+     type : 458752
+   -
+     name : CurrencyToString
+     internal_properties : CAAAAAgAAADzMhNfWtnUweoBuMk05U8ENzyjaPzgVnVp+DBmlKBAijHxL2P4AGk6B64yMGGcBGDYtgPiWSHf2/d9Ud3T1Ba9RKF0Opz997g7hGG6TfKKlwV0F/EMTTr0tv3w0LMFCWI/jk0Idlnte1RcslGYCeQYqLb+AfE75SnkvJLKsYiy+9mvdpm7O/Oe4MesISlLHaYlcCJcSrzHZxQrvqE9AiquL6PKpWmyYoGrA157kms2mf4i4/cmEtZ6fJtNgocfNbVRx00qygiwRWPZItAYKkWFAmGpm0S8myWNWkx6Cm6ccyxPaPiOv1LWc4JxLKu4qRmHVXTgVA==
+     procedure_id : 2167395417038990332
+     type_code : 15
+     code : |1+
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      //[ <Result> = ] CurrencyToString (<cyValue> is currency)
+      //
+      // Parameters:
+      //	cyValue (currency): <specify the role of cyValue>
+      // Example:
+      // Indicate an example.
+      //
+      //	nNbDecimals (integer - default value=3): <specify the role of nNbDecimals>
+      // Return value:
+      // 	ANSI string: // 	None
+      Procedure CurrencyToString( LOCAL cyValue is currency)
+      
+      RESULT NumToString(cyValue,maskSystemCurrency)
+      
+     type : 458752
+   -
+     name : BasketTotalTax
+     internal_properties : CAAAAAgAAABk2piQTHc9frUYXC8sGrFNdcD6A/V8pr7a2vCJUrrLdXKYnWF8rhmA8NMIXOr9X7Ar7TD9Wujp9jHrkBgEgeqfpH9wUx6NSVSV/qWEdwJENj3QB7p0JHM=
+     procedure_id : 2167461297573410816
+     type_code : 15
+     code : |1+
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      //[ <Result> = ] BasketTotalTax ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	string: //  	 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketTotalTax()
+      
+      RESULT CurrencyToString(gStBasket.cyTotalTax)
+     type : 458752
+   -
+     name : BasketValueBT
+     internal_properties : CAAAAAgAAABk2piQTHc9frUYXC8sGrFNdcD6A/V8pr7a2vCJUrrLdXKYnWF8rhmA8NMIXOr9X7Ar7TD9Wujp9jHrkBgEgeqfpH9wUx6NSVSV/qWEdwJENj3QB7p0JHM=
+     procedure_id : 2167464948303867655
+     type_code : 15
+     code : |1+
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      //[ <Result> = ] BasketValueBT ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	ANSI string: // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketValueBT()
+      
+      RESULT CurrencyToString(gStBasket.cyTotalPriceBT)
+     type : 458752
+   -
+     name : OrderPaymentToString
+     procedure_id : 2167831699855264213
+     type_code : 15
+     code : |1-
+      // Summary: Used to retrieve the payment in letters from its value
+      // Syntax:
+      //[ <Result> = ] OrderPaymentToString (<nPaymentType>)
+      //
+      // Parameters:
+      //	nPaymentType: <specify the role of nPaymentType>
+      // Return value:
+      // 	string: //  	 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure OrderPaymentToString(nPaymentType)
+      
+      sPaymentType is string
+      
+      SWITCH nPaymentType 
+      	CASE PAYM_CC
+      		sPaymentType = "CC"
+      	CASE PAYM_CHECK
+      		sPaymentType = "Check"
+      	CASE PAYM_WIRE
+      		sPaymentType = "Bank wire"
+      	CASE PAYM_PAYPAL
+      		sPaymentType = "Paypal"
+      	OTHER CASE
+      		dbgAssert(False,"Unable to find the type of payment")
+      		sPaymentType = "<Unknown>"				
+      END
+      
+      
+      RESULT sPaymentType
+     type : 458752
+   -
+     name : OrderStatusToString
+     procedure_id : 2167832163711839619
+     type_code : 15
+     code : |1-
+      // Summary: Used to retrieve the status of the order in letters
+      // Syntax:
+      //[ <Result> = ] OrderStatusToString (<nOrderStatus>)
+      //
+      // Parameters:
+      //	nOrderStatus: <specify the role of nOrderStatus>
+      // Return value:
+      // 	string: //  	 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure OrderStatusToString(nOrderStatus)
+      
+      sStatus is string
+      
+      SWITCH nOrderStatus
+      
+      	CASE ORD_WAITINGFORPAYMENT // Order waiting for payment
+      		sStatus = "Waiting for payment"
+      	CASE ORD_PREPARATION // Order paid, currently prepared
+      		sStatus = "Currently prepared"
+      	CASE ORD_DELIVERY // Order currently delivered
+      		sStatus = "Delivery in progress"
+      	CASE ORD_DELIVERED // Order delivered
+      		sStatus = "Delivered"
+      	OTHER CASE
+      		sStatus = "<Unknown>"		
+      END
+      
+      
+      RESULT sStatus
+     type : 458752
+   -
+     name : DefaultShippingCost
+     procedure_id : 2168236861321483875
+     type_code : 15
+     code : |1-
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      //[ <Result> = ] DefaultShippingCost ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	real: // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure DefaultShippingCost()
+      
+      SWITCH COL_ECommerce.gStBasket.nPostageType
+      	CASE 1 // Standard delivery, shipping cost equal to 5 €
+      		RESULT 4.18
+      	CASE 2 // Express delivery, shipping cost equal to 15 €
+      		RESULT 12.54
+      	CASE 3 // Immediate delivery, shipping cost equal to 25 €
+      		RESULT 20.90
+      	OTHER CASE
+      		// consider that is is a standard shipping cost
+      		RESULT 4.18
+      END
+     type : 458752
+   -
+     name : InitDefaultPaymentModule
+     internal_properties : CAAAAAgAAAAlY+GIffFRnR4v9SbMEaGWSfeoYkQMOJuvnLgp/gu3o3vNa2jl4qKFbEDVrf68FZxrc8KQolvJjQzgdIdbC2RC6a17MgC7we/487etVTBt1wL2BUNdIys93UIM5w0MmWkFFFCKwDAttAJabm5H7gdQ3/nCISEAA7kwhRCfEjp8mv7CFM3yirTmb1GZpf/k2cT0YRxv8qTrruacoEGQ/wN3S1J2n1tCsV3vHANnR65hPV9ufuaysj5HFartKsgbjz89BC5xSRviPCPys+8w7vy/lXTJzvOPN03FfYEylV7oUqVrg7ogvw==
+     procedure_id : 2170011627655964065
+     type_code : 15
+     code : |1+
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      // InitDefaultPaymentModule ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure InitDefaultPaymentModule()
+      // Initialize the data directory
+      DataParameters(fDataDir())
+      
+      
+      // was the initialization already done?
+      IF gbInitCompleted = True THEN
+      	RETURN
+      END
+      
+      // Initialize the payment
+      gsPaymentOKURL = "./payment_valid.awp"
+      gsURLPaymentAbandon = "./payment_abandon.awp"
+      gsURLPaymentFailure = "./payment_failure.awp"
+      gsURLBackToStore = "./payment_return.awp"
+      gsPaymentObjectName = StringBuild("Basket %1",COL_ECommerce.gsSiteName)
+      gsPaymentObjectRef = gsPaymentObjectName
+      
+      // Parameters for connecting to the secure payment
+      
+      
+      // Common parameters
+      gbPaymentSimulationMode = True
+      
+      // PayBox parameters
+      gsPayBoxContract = "1999888"
+      gsPayBoxCompanyCode = 2
+      gsPayBoxRank = 99
+      
+      // PayPal parameters
+      
+      //For this type of secure payment, PayPal must provide the following elements:
+      
+      // TO DO: [PAYPAL] To get your own test codes, visit the site http://developer.paypal.com/
+      // If you have no test SandBox account, you must create one for the simulation mode (different from your "true" PayPal account)
+      // Operating mode on 15/09/2009:
+      // - Go to http://developer.paypal.com/
+      // - Click the "Sign UP" button and fill the form
+      // - Validate the creation of your account with the link that will be emailed to you
+      // - Connect in a browser to your Sandbox account
+      // To get your identifiers required for secure payment, follow these steps once you are connected
+      // - Go to the menu on the left and choose "Api Credentials"
+      // - Click "Create Test Account"
+      // - Choose a Seller account and leave "United States" for the country (otherwise, the type of account will not allow you to get the identifiers)
+      // - once the account is created, click "Api Credentials" again, the following information is displayed:
+      // "API Username" => MyPayment:PayPalIdentifier
+      // "API Password" => MyPayment:PayPalPassword
+      // "Signature"    => MyPayment:PayPalSignature
+      
+      
+      //!!!! Caution!!!!
+      //In simulation mode, a browser must be opened on your test Paypal SandBox (http://developer.paypal.com/), in parallel of the WebDev test. 
+      //The browser must have the same type as the one used for your test (Internet Explorer and Firefox must not be mixed for example)
+      
+      //IF ERROR: "The return page <http://www.mydomain.fr/MYSITE_WEB/FR/backtostore.awp?TEST=O> did not return the expected result"
+      //If an error occurs on the test of the page for payment return on the server on a problem about address resolution 
+      //ability to disable the test by setting the IgnoreTestReturnPage property to True: 
+      //MyPayment.IgnoreTestReturnPage=True
+      
+      gsPayPalIdentifier = ""
+      gsPayPalPassword = ""
+      gsPayPalSignature = ""
+      
+     type : 458752
+   -
+     name : OrderCreate
+     internal_properties : CAAAAAgAAACl9zaiuqtOBg3IUQ4lvoKC4d3MOJ9vrBwigKRamjDBaNZPL9PA0uxPG72gwGBpQI7qE2Lht/EnDDlUB8RhbR8zMtMkKhO/hxQJryoiiz+RP/Bt5uB89wS7JGIdiwk9O30w8TkCi4C/uCWXU9Q76dTQoPm2jm+dgvhiUvHXHegS
+     procedure_id : 2170049195742797771
+     type_code : 15
+     code : |1-
+      // Summary: Creates a new order with a sequential number per day
+      // Syntax:
+      //[ <Result> = ] OrderCreate ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	string: //  	 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure OrderCreate()
+      
+      // The generated numbers have the following format:
+      // OF01-YYYYMMDD-seqnum
+      // OF01: order forms of the Web site
+      // YYYYMMDD: creation date of the order form
+      // seqnum: sequential number of the OF
+      
+      // Try to position on today's record and to lock it
+      WHILE HReadSeekFirst(OrderNum,OrdersDate,DateSys(),hLockWrite)=False
+      	// If no record was found, add it
+      	IF HFound()=False THEN
+      		OrderNum.OrdersDate = DateSys()
+      		OrderNum.Number = 0
+      		HAdd(OrderNum)
+      	ELSE
+      		// Record found but unable to lock
+      		IF HErrorLock() THEN
+      			CONTINUE
+      		ELSE
+      			// Other error
+      			RESULT ""
+      		END
+      	END
+      END
+      
+      // Reads the sequence number, increments it and updates the file
+      nSequenceNum is int = OrderNum.Number + 1
+      OrderNum.Number++
+      IF HModify(OrderNum)=False THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)	
+      END
+      
+      // Generates the OF number
+      sOrderNum is string = "OF01-"+DateSys()+NumToString(nSequenceNum,"08d")
+      
+      // Creates the order record
+      HReset(Orders)
+      Orders.OrderNum = sOrderNum
+      Orders.InvoiceNum = Null
+      Orders.InvoicingAddressID = Null
+      Orders.DeliveryAddressID = Null
+      Orders.OrdersDate = DateSys()
+      Orders.OrderStatus = ORD_WAITINGFORPAYMENT
+      IF HAdd(Orders)=False THEN
+      	// The addition failed
+      	sOrderNum = ""
+      END
+      
+      RESULT sOrderNum
+      
+      END:
+      // In all cases, unlock the counter of numbers
+      HUnlockRecNum(OrderNum,hCurrentRecNum)
+     type : 458752
+   -
+     name : BasketToOrder
+     procedure_id : 2170073797317133652
+     type_code : 15
+     code : |1+
+      // Summary: Transforms the current basket into order or updates the order
+      // Syntax:
+      // BasketToOrder ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketToOrder()
+      
+      // Create the order or find it
+      IF gStBasket.nIDOrder <> 0 THEN
+      	IF HReadSeekFirst(Orders,OrderID,gStBasket.nIDOrder)=False THEN
+      		// Order expired, detach the basket
+      		gStBasket.nIDOrder = 0
+      	END
+      END
+      
+      IF gStBasket.nIDOrder = 0 THEN
+      	// Create the order
+      	IF OrderCreate() = "" THEN
+      		// If the order creation fails, it's a fatal error for the site
+      		gsCurrentError = ErrorInfo(errFullDetails)
+      		PageDisplay(page_error)		
+      	END
+      	// From now on, the basket is linked to an order
+      	gStBasket.nIDOrder = Orders.OrderID
+      END
+      
+      // Deletes the order lines if any
+      QRY_ClearOrder.pIDOrder = gStBasket.nIDOrder
+      IF HExecuteQuery(QRY_ClearOrder) = False THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)		
+      END
+      
+      // Refreshes the values in cache in the basket
+      BasketRefresh()
+      
+      // Create the order lines
+      Orders.TotalBT = 0
+      Orders.TotalIOT = 0
+      FOR EACH stLine of gStBasket.arrBasket
+      	// Find the product and its tax rate
+      	IF HReadSeekFirst(Product,Reference,stLine.sProductRef)=False _OR_ HReadSeekFirst(TaxRate,IDTaxRate,Product.IDTaxRate)=False THEN
+      		PageDisplay(page_error)		
+      	END
+      	
+      	// Update the basket			
+      	stLine.sArticleCap = Product.ProductCaption
+      	stLine.cyUnitPriceBT = Product.UnitPriceBT
+      	stLine.cyUnitTax = (Product.UnitPriceBT * TaxRate.Rate) / 100
+      	
+      	// Create the order line
+      	HReset(OrdLine)
+      	OrdLine.ProductCaption = Product.ProductCaption
+      	OrdLine.Quantity = stLine.nNbArticles
+      	OrdLine.UnitPriceBT = Product.UnitPriceBT
+      	OrdLine.TaxRate = TaxRate.Rate
+      	OrdLine.TotalLine = (stLine.cyUnitPriceBT+stLine.cyUnitTax) * stLine.nNbArticles
+      	OrdLine.OrderID = gStBasket.nIDOrder
+      	OrdLine.Reference = stLine.sProductRef
+      	IF HAdd(OrdLine)=False THEN
+      		gsCurrentError = ErrorInfo(errFullDetails)
+      		PageDisplay(page_error)		
+      	END
+      	
+      	Orders.TotalBT += (stLine.cyUnitPriceBT*stLine.nNbArticles)
+      	Orders.TotalIOT += OrdLine.TotalLine
+      	
+      END
+      
+      Orders.ShippingCost = gStBasket.cyDeliveryCostIOT
+      IF HModify(Orders)=False THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)		
+      END
+     type : 458752
+   -
+     name : BasketRefresh
+     procedure_id : 2170082735144257022
+     type_code : 15
+     code : |1-
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      // BasketRefresh ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketRefresh()
+      
+      FOR EACH stLine of gStBasket.arrBasket
+      	// Find the product and its tax rate
+      	IF HReadSeekFirst(Product,Reference,stLine.sProductRef)=False _OR_ HReadSeekFirst(TaxRate,IDTaxRate,Product.IDTaxRate)=False THEN
+      		PageDisplay(page_error)		
+      	END
+      	// Update the basket			
+      	stLine.sArticleCap = Product.ProductCaption
+      	stLine.cyUnitPriceBT = Product.UnitPriceBT
+      	stLine.cyUnitTax = (Product.UnitPriceBT * TaxRate.Rate) / 100
+      END
+     type : 458752
+   -
+     name : OrderModifyCustomer
+     procedure_id : 2170084397298298560
+     type_code : 15
+     code : |1-
+      // Summary: Associates the connected customer to the order linked to the basket
+      // Syntax:
+      //OrderModifyCustomer ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure OrderModifyCustomer()
+      
+      dbgAssert(COL_CustomerAccounts.gstCurrentCustomer.IDCustomer<>0,"You must be connected to use this function")
+      dbgAssert(COL_ECommerce.gStBasket.nIDOrder<>0,"An order must be currently processed to use this function")
+      IF COL_CustomerAccounts.gstCurrentCustomer.IDCustomer=0 _OR_ COL_ECommerce.gStBasket.nIDOrder=0 THEN
+      	RETURN
+      END
+      
+      // Positions on the order
+      IF HReadSeekFirst(Orders,OrderID,COL_ECommerce.gStBasket.nIDOrder,hLockWrite)=False THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)
+      END
+      
+      // Performs the association
+      Orders.IDCustomer = COL_CustomerAccounts.gstCurrentCustomer.IDCustomer
+      HModify(Orders)
+     type : 458752
+   -
+     name : OrderModifyAddress
+     procedure_id : 2170097196305458649
+     type_code : 15
+     code : |1-
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      // OrderModifyAddress ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure OrderModifyAddress()
+      
+      dbgAssert(COL_ECommerce.gStBasket.nIDOrder<>0,"An order must be currently processed to use this function")
+      IF COL_ECommerce.gStBasket.nIDOrder=0 THEN
+      	RETURN
+      END
+      
+      // Positions on the order
+      IF HReadSeekFirst(Orders,OrderID,gStBasket.nIDOrder)=False THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)
+      END
+      
+      // If an invoicing address is found
+      IF gStBasket.nIDInvoicingAddress<>0 THEN
+      	// Position on it
+      	IF HReadSeekFirst(Address,AddressID,gStBasket.nIDInvoicingAddress) THEN
+      		dbgAssert(Address.IDCustomer=gStBasket.nCustomerId,"The invoicing address does not belong to the current customer")
+      		// If the address was already defined
+      		bModifAddress is boolean = Orders.InvoicingAddressID<>0
+      		IF bModifAddress THEN
+      			IF HReadSeekFirst(ArchiveAddress,AddressID,Orders.InvoicingAddressID)=False THEN
+      				bModifAddress = False
+      			END
+      		END
+      		// Copies the values
+      		HCopyRecord(ArchiveAddress,Address)
+      		IF bModifAddress THEN
+      			IF HModify(ArchiveAddress)=False THEN
+      				gsCurrentError = ErrorInfo(errFullDetails)
+      				PageDisplay(page_error)
+      			END
+      		ELSE
+      			IF HAdd(ArchiveAddress)=False THEN
+      				gsCurrentError = ErrorInfo(errFullDetails)
+      				PageDisplay(page_error)
+      			END
+      			Orders.InvoicingAddressID = ArchiveAddress.AddressID
+      			IF HModify(Orders)=False THEN
+      				gsCurrentError = ErrorInfo(errFullDetails)
+      				PageDisplay(page_error)
+      			END
+      		END
+      	END	
+      END
+      
+      // If a delivery address is found
+      IF gStBasket.nIDDeliveryAddress<>0 THEN
+      	// Position on it
+      	IF HReadSeekFirst(Address,AddressID,gStBasket.nIDDeliveryAddress) THEN
+      		dbgAssert(Address.IDCustomer=gStBasket.nCustomerId,"The delivery address does not belong to the current customer")
+      		// If the address was already defined
+      		bModifAddress = Orders.DeliveryAddressID<>0
+      		IF bModifAddress THEN
+      			IF HReadSeekFirst(ArchiveAddress,AddressID,Orders.DeliveryAddressID)=False THEN
+      				bModifAddress = False
+      			END
+      		END
+      		// Copies the values
+      		HCopyRecord(ArchiveAddress,Address)
+      		IF bModifAddress THEN
+      			IF HModify(ArchiveAddress)=False THEN
+      				gsCurrentError = ErrorInfo(errFullDetails)
+      				PageDisplay(page_error)
+      			END
+      		ELSE
+      			IF HAdd(ArchiveAddress)=False THEN
+      				gsCurrentError = ErrorInfo(errFullDetails)
+      				PageDisplay(page_error)
+      			END
+      			Orders.DeliveryAddressID = ArchiveAddress.AddressID
+      			IF HModify(Orders)=False THEN
+      				gsCurrentError = ErrorInfo(errFullDetails)
+      				PageDisplay(page_error)
+      			END
+      		END
+      	END	
+      END
+     type : 458752
+   -
+     name : OrderDefaultConfirmationEmail
+     internal_properties : CAAAAAgAAAAgszqkMr6DsddhaXnzuv/eFR370LOmHPWLhme8iz6GpkjzsA/RN8WPHpffwPUAUs6AHrhpy1VcF8eoucmQ9k6jx1MQzethXVqbLUhMPaEZiYr1PpiYdwTB0g8SHl189Ho/taEOQAqpI5igDxc2/sTiLguwNO0Q+htBEQACJ4ajJULxqmPCu17f5MEl1LsdRw==
+     procedure_id : 2185672307277947536
+     type_code : 15
+     code : |1-
+      // Summary: Default procedure used to send the email for order confirmation
+      // Syntax:
+      //OrderDefaultConfirmationEmail (<nIDOrder> is int [, <nPaymentMode> is int])
+      //
+      Procedure OrderDefaultConfirmationEmail( nIDOrder is int , nPAYMENTMODE is int = PAYM_CC )
+      
+      // Switches the time-out to 3 seconds (the SMTP server is on localhost therefore there is a problem if it takes more than 3 seconds to respond)
+      EmailSetTimeOut(3)
+      
+      // Build the email
+      Email.Subject = StringBuild("Confirmation of your order %1",gsSiteName)
+      Email.Sender = gsOrderConfirmationEmail
+      Email.NbRecipient = 1
+      
+      HReadSeekFirst(Customer,IDCustomer,COL_CustomerAccounts.nIDUser())
+      Email.Recipient[1] = Customer.eMail
+      
+      HReadSeekFirst(Orders,OrderID,nIDOrder)
+      SWITCH nPAYMENTMODE
+      	CASE PAYM_CC,PAYM_PAYPAL
+      		Email.Message = StringBuild(<§@1e0c492300017dcb0004§>,gsSiteName,CurrencyToString(gStBasket.cyTotalPriceIOT),Orders.OrderNum)
+      	CASE PAYM_CHECK
+       		Email.Message = StringBuild(<§@1e0c492300017dcb0005§>,gsSiteName,CurrencyToString(gStBasket.cyTotalPriceIOT),Orders.OrderNum)
+      	CASE PAYM_WIRE
+       		Email.Message = StringBuild(<§@1e0c492300017dcb0006§>,gsSiteName,CurrencyToString(gStBasket.cyTotalPriceIOT),Orders.OrderNum)
+      END
+      
+      // Send the message
+      IF EmailStartSMTPSession(COL_CustomerAccounts.gsSMTPLogin,COL_CustomerAccounts.gsSMTPPassword,COL_CustomerAccounts.gsSMTPServer,COL_CustomerAccounts.gnSMTPPort) THEN
+      	EmailSendMessage(COL_CustomerAccounts.gsSMTPLogin)
+      	EmailCloseSession(COL_CustomerAccounts.gsSMTPLogin)
+      END
+     type : 458752
+   -
+     name : BasketDeleteAll
+     internal_properties : CAAAAAgAAABwkSrEhxkMocVZtc5/eTt6Kj+5Z6i6c8GvbsdNTphosXnXJ54jVImNG4BDq6DZnXIIa8u4lZX2TkxnszF1rMdJby8AOESomIzCOAiVGJsvthrqT3m8kYKGvI0FMK+KUvvYqM6KlwMzmTvRxipjRA==
+     procedure_id : 2185673844885313027
+     type_code : 15
+     code : |1+
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      // BasketDeleteAll ()
+      //
+      // Parameters:
+      //	None
+      // Return value:
+      // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure BasketDeleteAll()
+      
+      // Basket Content
+      ArrayDeleteAll(gStBasket.arrBasket)
+      // "Cache" variables to limit the number of calculations on the server
+      ArrayDeleteAll(gStBasket.aaTC_Product)
+      gStBasket.nNbArticles = 0
+      gStBasket.cyTotalPriceBT = 0
+      gStBasket.cyTotalTax = 0
+      // Delivery variables
+      gStBasket.cyDeliveryCostBT = 0
+      gStBasket.cyDeliveryCostIOT = 0
+      // Total value of basket IOT, including the shipping costs (grand total to pay)
+      gStBasket.cyTotalPriceIOT = 0
+      
+      // Variables used by the conversion channel
+      // gStBasket.nIDCustomer  // only this variable is stored (the end of order does not trigger the disconnection)
+      gStBasket.nIDDeliveryAddress = 0
+      gStBasket.nIDInvoicingAddress = 0
+      gStBasket.nIDOrder = 0
+     type : 458752
+   -
+     name : ProductGetPhoto
+     procedure_id : 2186324239871913369
+     type_code : 15
+     code : |1-
+      // Summary: <specify the action of the procedure>
+      // Syntax:
+      //[ <Result> = ] ProductGetPhoto ( [<sProductRef> is string [, <nIDProduct> is int [, <nPhotoRole> is int]]])
+      //
+      // Parameters:
+      //	sProductRef (string - default value=""): <specify the role of sProductRef>
+      //	nIDProduct (integer - default value=-1): <specify the role of nIDProduct>
+      //	nPhotoRole (integer - default value=0): <specify the role of nPhotoRole>
+      // Return value:
+      // 	Undefined type: // 	None
+      //
+      // Example:
+      // Indicate an example.
+      //
+      Procedure ProductGetPhoto( LOCAL sProductRef is string = "" , LOCAL nIDProduct is int = -1 , LOCAL nPhotoRole is int = ROLE_PHOTO_NORMAL  )
+      
+      // Search by reference
+      IF nIDProduct=-1 THEN
+      	HReadSeekFirst(Product,Reference,sProductRef)
+      	nIDProduct = Product.ProductID
+      END
+      
+      // Find the photo corresponding to the requested role
+      IF HReadSeekFirst(ProductPhoto,IDProductRole,[nIDProduct,nPhotoRole])=False THEN
+      	HReadSeekFirst(ProductPhoto,ProductID,nIDProduct)
+      END
+      
+      // Check the photo, we consider that all the specified paths are relative paths
+      IF ProductPhoto.Photo [= "/" THEN
+      	RESULT ProductPhoto.Photo[[2 TO ]]
+      END
+      
+      
+      RESULT ProductPhoto.Photo
+     type : 458752
+   -
+     name : OrderModifyPayment
+     procedure_id : 2245709167865747840
+     type_code : 15
+     code : |1+
+      // Summary: Used to modify the type of payment
+      // Syntax:
+      //OrderModifyPayment (<nPayment>)
+      //
+      // Parameters:
+      // 	nPayment: Type of payment chosen by the customer
+      //
+      Procedure OrderModifyPayment(nPayment)
+      
+      
+      dbgAssert(COL_ECommerce.gStBasket.nIDOrder<>0,"An order must be currently processed to use this function")
+      IF COL_ECommerce.gStBasket.nIDOrder=0 THEN
+      	RETURN
+      END
+      
+      // Positions on the order
+      IF HReadSeekFirst(Orders,OrderID,gStBasket.nIDOrder)=False THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)
+      END
+      // Modifies the type of payment
+      Orders.PaymentType = nPayment
+      
+      // Modifies the order
+      IF HModify(Orders) = False THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)
+      END
+     type : 458752
+   -
+     name : OrderModifyShippingCost
+     procedure_id : 2245711268111273990
+     type_code : 15
+     code : |1-
+      // Summary: Used to modify the shipping cost
+      // Syntax:
+      // OrderModifyShippingCost ()
+      //
+      Procedure OrderModifyShippingCost()
+      
+      
+      dbgAssert(COL_ECommerce.gStBasket.nIDOrder<>0,"An order must be currently processed to use this function")
+      IF COL_ECommerce.gStBasket.nIDOrder=0 THEN
+      	RETURN
+      END
+      
+      // Positions on the order
+      IF HReadSeekFirst(Orders,OrderID,gStBasket.nIDOrder)=False THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)
+      END
+      
+      // Modifies the shipping cost
+      Orders.ShippingCost = COL_ECommerce.gStBasket.cyDeliveryCostIOT
+      
+      IF NOT HModify(Orders) THEN
+      	gsCurrentError = ErrorInfo(errFullDetails)
+      	PageDisplay(page_error)
+      END
+     type : 458752
+   -
+     name : OrderModifyStatus
+     procedure_id : 2248744459901193986
+     type_code : 15
+     code : |1-
+      // Summary: used to modify the status of the order
+      // Syntax:
+      //[ <Result> = ] OrderModifyStatus (<nStatus>)
+      //
+      // Parameters:
+      //	nStatus: New status of the order
+      // Return value:
+      // 	boolean:   True if the modification was successful, False otherwise
+      //
+      Procedure OrderModifyStatus(nStatus)
+      
+      // If the new status does not belong to the list of constants
+      IF NOT nStatus IN (ORD_WAITINGFORPAYMENT, ORD_DELIVERY, ORD_DELIVERED, ORD_PREPARATION) THEN
+      	RESULT False
+      END
+      
+      
+      HReadSeekFirst(Orders,OrderID,gStBasket.nIDOrder)
+      IF HFound(Orders) = False THEN
+      	dbgAssert(False,"Unable to find the order related to this payment")
+      	RESULT False
+      END
+      
+      // Modifies the status of the order
+      Orders.OrderStatus = nStatus
+      
+      RESULT HModify(Orders)
+     type : 458752
+  procedure_templates : []
+  property_templates : []
+ code_parameters :
+  internal_properties : CAAAAAgAAACVGQgYbalU7DKC3oH4ItDrjtcTHXXV/EuH8q0IbhyQlw==
+  original_name : COL_SansNom1
+resources :
+ string_res :
+  identifier : 0x1e0c492300017dcb
+  internal_properties : CAAAAAgAAACm76HWfKGWp33VjXInA4cRlqArlgTTA862QGt72W2ld5Y=
+  strings :
+   -
+     text :
+      en-GB : "You have chosen to pay by credit card.\r\n\r\nClick the \"Validate the payment by Credit Card\" button to be redirected to the site for secure payment.\r\n\r\nAfter the payment, a confirmation page of order will be displayed and a confirmation email will be automatically sent."
+     index : 0
+   -
+     text :
+      en-GB : "You have chosen to pay via PayPal.\r\n\r\nClick the \"Validate the payment by PayPal\" button to be redirected to the PayPal site.\r\n\r\nAfter the payment, a page for order confirmation will be displayed and a confirmation email will be automatically sent."
+     index : 1
+   -
+     text :
+      en-GB : "You have chosen to pay by bank wire. We recommend that you use the bank details below (by specifying to your bank to perform an \"OUR bank wire\" if your payment is performed from the Overseas Departments and Territories or from a foreign country).\r\n\r\nThese details will be summarized in your confirmation email.\r\nDon't forget to specify the order number.\r\n\r\nBank code: 30047\r\nDesk code: 14121\r\nAccount number: 00037236001\r\nKey: 53\r\nPaying bank: CIC Nantes-South\r\n\r\nAddition information for the OUR bank wires:\r\nIBAN: FR76 3004 7141 2100 0372 3600 153\r\nSwift: CMCIFRPP\r\n\r\nYour order will be processed by our services when the total amount of the order is credited to our account. Your order will be automatically canceled if your payment has not been processed within 10 days."
+     index : 2
+   -
+     text :
+      en-GB : "You've chosen to pay by check.\r\n\r\nYour check must be payable to the xxx company (don't forget to write the order number on the back of your check) and it must be sent to:\r\n\r\nxxx - Order Department\r\nyyyy Avenue\r\n34000 MONTPELLIER\r\n\r\nYour check will be processed by our services as soon as possible.\r\n\r\nYour order will be automatically canceled if your payment has not been received by us within 10 days.\r\n"
+     index : 3
+   -
+     text :
+      en-GB : "Hello,\r\n\r\nThank you for your order (order %3 for a total amount of %2 Euros) on the %1 site.\r\nYour payment was validated and your order will now be processed.\r\n\r\nBest regards,\r\nOrders Department"
+     index : 4
+   -
+     text :
+      en-GB : "Hello,\r\n\r\nThank you for your order on the %1 site.\r\nYou've chosen to pay by check.\r\n\r\nYour check must be payable to the xxx company (don't forget to write the order number (%3) on the back of your check) and it must be sent to:\r\n\r\nxxx - Orders Department\r\nyyyy Avenue\r\n34000 MONTPELLIER\r\n\r\nYour check will be processed by our services as soon as possible.\r\n\r\nYour order will be automatically canceled if your payment has not been received by us within 10 days.\r\n\r\nBest regards,\r\nOrders Department"
+     index : 5
+   -
+     text :
+      en-GB : "Hello,\r\n\r\nThank you for your order on the %1 site.\r\n\r\nYou have chosen to pay by bank wire.\r\nWe recommend that you use the bank information provided below (by notifying your bank to perform an \"OUR bank wire\" if your payment is performed from the Overseas Departments and Territories or from a foreign country).\r\n\r\nDon't forget to specify the order number (%3).\r\nTotal amount of the order: %2 Euros.\r\n\r\nBank code: 30047\r\nDesk code: 14121\r\nAccount number: 00037236001\r\nKey: 53\r\nPaying bank: CIC Nantes-South\r\n\r\nAddition information for the OUR bank wires:\r\nIBAN: FR76 3004 7141 2100 0372 3600 153\r\nSwift: CMCIFRPP\r\n\r\nYour order will be processed by our services when the total amount of the order is credited to our account. Your order will be automatically canceled if your payment has not been received within 10 days.\r\n\r\nBest regards,\r\nOrders Department"
+     index : 6
+custom_note :
+ internal_properties : CAAAAAgAAABtB9HWVzrXO2+4NDRVK0vmzaNKrCKqH1DBX30lMmGZ

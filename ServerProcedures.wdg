@@ -1,0 +1,120 @@
+#To edit and compare internal_properties, use WINDEV integrated tools.
+#Internal properties refer to the properties of controls in windows, reports, etc.
+info :
+ name : ServerProcedures
+ major_version : 28
+ minor_version : 0
+ type : 7
+ description : ""
+ subtype : 0
+procedure_set :
+ identifier : 0x117aad89119b3433
+ internal_properties : CAAAAAgAAABGLu41kG7fjQV3iS4F72qmnKaNh5694reolNKIW0iw
+ code_elements :
+  internal_properties : CAAAAAgAAAC+i0nwpXFYSyi++dBi1aqd3UXM0w2Pvl8K3YCd/8GItjZUzZyiouEFj7JXQt1kHcCnEDBYtIcU6YjttZdx153Cj5xifkIPV5Y=
+  type_code : 31
+  p_codes :
+   -
+     code : |1+
+      CONSTANT
+      	IMG_NOT_AVAIL_72 = "photos/72/NotAvail.png"
+      	IMG_NOT_AVAIL_128 = "photos/128/NotAvail.png"
+      	IMG_NOT_AVAIL_256 = "photos/256/NotAvail.png"
+      	
+      END
+     type : 720896
+  procedures :
+   -
+     name : sReturnPhoto
+     procedure_id : 1259509850021049395
+     type_code : 15
+     code : |1-
+      // Summary: Used to return the photo (in 128x128)
+      // Syntax:
+      //[ <Result> = ] sReturnPhoto (<sPhotoName> is ANSI string)
+      //
+      // Parameters:
+      //	sPhotoName (ANSI string): Name of the photo as it was defined in the file
+      // Return value:
+      // 	String: path of the photo
+      //
+      PROCEDURE sReturnPhoto(LOCAL sPhotoName is string)
+      
+      IF sPhotoName ~= "" THEN
+      	// TODO: manage a default image
+      	RESULT IMG_NOT_AVAIL_128
+      END
+      
+      IF Left(sPhotoName,1)="/" THEN RESULT Right(sPhotoName,Length(sPhotoName)-1)
+      
+      RESULT sPhotoName
+     type : 458752
+   -
+     name : sReturnLargePhoto
+     procedure_id : 1259509850021114931
+     type_code : 15
+     code : |1+
+      // Summary: Used to return the photo (in 256x256)
+      // Syntax:
+      //[ <Result> = ] sReturnLargePhoto (<sPhotoName> is ANSI string)
+      //
+      // Parameters:
+      //	sPhotoName (ANSI string): Name of the photo as it was defined in the file
+      // Return value:
+      // 	String: path of the photo
+      //
+      
+      PROCEDURE sReturnLargePhoto(LOCAL sPhotoName is string)
+      
+      IF sPhotoName ~= "" THEN
+      	// Return the default image
+      	RESULT IMG_NOT_AVAIL_256
+      END
+      
+      IF Left(sPhotoName,1)="/" THEN 
+      	sPhotoName = Right(sPhotoName,Length(sPhotoName)-1)
+      END
+      
+      
+      RESULT Replace(sPhotoName,"128","256")
+     type : 458752
+   -
+     name : sReturnThumbnailPhoto
+     procedure_id : 1259509850021180467
+     type_code : 15
+     code : |1+
+      // Summary: Used to return the photo (in 72x72)
+      // Syntax:
+      //[ <Result> = ] sReturnThumbnailPhoto (<sPhotoName> is ANSI string)
+      //
+      // Parameters:
+      //	sPhotoName (ANSI string): Name of the photo as it was defined in the file
+      // Return value:
+      // 	String: path of the photo
+      //
+      
+      PROCEDURE sReturnThumbnailPhoto(LOCAL sPhotoName is string)
+      
+      IF sPhotoName ~= "" THEN
+      	// TODO: manage a default image	
+      	RESULT IMG_NOT_AVAIL_72
+      END
+      
+      IF Left(sPhotoName,1)="/" THEN 
+      	sPhotoName = Right(sPhotoName,Length(sPhotoName)-1)
+      END
+      
+      
+      RESULT Replace(sPhotoName,"128","72")
+     type : 458752
+  procedure_templates : []
+  property_templates : []
+ code_parameters :
+  internal_properties : CAAAAAgAAACVGQgYbalU7DKC3oH4ItDrjtcTHXXV/EuH8q0IbhyQlw==
+  original_name : COL_SansNom1
+resources :
+ string_res :
+  identifier : 0x1e57d36e162488a9
+  internal_properties : CAAAAAgAAACm76HWfKGWp33VjXInA4cRlqArlgTTA862QGt72W2ld5Y=
+custom_note :
+ internal_properties : CAAAAAgAAABtB9HWVzrXO2+4NDRVK0vmzaNKrCKqH1DBX30lMmGZ
